@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Family Daily Budget Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- PWA support -->
+  <link rel="manifest" href="manifest.json">
+</head>
+<body class="bg-gray-100 min-h-screen p-4">
+  <div class="max-w-4xl mx-auto">
+    <h1 class="text-3xl font-bold mb-2 text-center">Family Daily Budget Tracker</h1>
+    <p class="text-center text-gray-600 mb-6">Fill this form every day to track income and expenses.</p>
+
+    <div class="bg-white rounded-2xl shadow p-6">
+      <form id="budgetForm" class="space-y-4">
+        <div>
+          <label class="font-semibold">Date</label>
+          <input type="date" id="date" required class="w-full border rounded-xl p-2" />
+        </div>
+
+        <h2 class="text-xl font-semibold pt-4">Income</h2>
+        <div>
+          <label>Total Income Received (KSh)</label>
+          <input type="number" id="income" class="w-full border rounded-xl p-2" />
+        </div>
+        <div>
+          <label>Other Income (KSh)</label>
+          <input type="number" id="otherIncome" class="w-full border rounded-xl p-2" />
+        </div>
+
+        <h2 class="text-xl font-semibold pt-4">Expenses</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <input type="number" id="rent" placeholder="Rent (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="electricity" placeholder="Electricity Bill (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="gas" placeholder="Gas Bill (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="transport" placeholder="Transport (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="wifi" placeholder="WiFi (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="food" placeholder="Food (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="schoolFees" placeholder="School Fees Paid (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="debtPaid" placeholder="Debt Paid Off (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="debtTaken" placeholder="Debt Taken (KSh)" class="border rounded-xl p-2" />
+          <input type="number" id="otherExpenses" placeholder="Other Expenses (KSh)" class="border rounded-xl p-2" />
+        </div>
+
+        <div class="pt-4 flex gap-3">
+          <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-2xl shadow">Save Entry</button>
+          <button type="button" id="resetBtn" class="bg-gray-300 px-4 py-2 rounded-2xl">Reset Form</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-6 mt-6">
+      <div class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-xl font-semibold mb-3">Monthly Summary</h2>
+        <p id="summaryText" class="text-gray-700">No data yet.</p>
+      </div>
+
+      <div class="bg-white rounded-2xl shadow p-6">
+        <h2 class="text-xl font-semibold mb-3">Spending Chart</h2>
+        <canvas id="expenseChart"></canvas>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('budgetForm');
+    const resetBtn = document.getElementById('resetBtn');
+    const summaryText = document.getElementById('summaryText');
+
+    let chart;
+
+    // 🔴 IMPORTANT: Replace with your Google Apps Script Web App URL
+    const GOOGLE_SCRIPT_URL = "PASTE_YOUR_GOOGLE_SCRIPT_URL_HERE";
+
+    function getNumber(id) {
+      return Number(document.getElementById(id).value) || 0;
+    }
+
+    function loadData() {
+      const data = JSON.parse(localStorage.getItem('budgetEntries') || '[]');
+
+      const totalIncome = data.reduce((sum, d) => sum + d.income + d.otherIncome, 0);
+      const totalExpenses = data.reduce((sum, d) => sum + d.totalExpenses, 0);
+      const balance = totalIncome - totalExpenses;
+
+      if (data.length === 0) {
+        summaryText.textContent = 'No data yet.';
+        updateChart(0, 0);
+        return;
+      }
+
+      summaryText.innerHTML = `
+        Entries this month: <strong>${data.length}</strong><br>
+        Total Income: <strong>KSh ${totalIncome.toLocaleString()}</strong><br>
+        Total Expenses: <strong>KSh ${totalExpenses.toLocaleString()}</strong><br>
+        Balance: <strong>${balance >= 0 ? 'KSh ' + balance.toLocaleString() : '-KSh ' + Math.abs(balance).toLocaleString()}</strong>
+      `;
+
+      updateChart(totalIncome, totalExpenses);
+    }
+
+    function updateChart(income, expenses) {
+      const ctx = document.getElementById('expenseChart');
+
+      if (chart) chart.destroy();
+
+      chart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['Income', 'Expenses'],
+          datasets: [{ data: [income, expenses] }]
+        }
+      });
+    }
+
+    async function syncToGoogleSheets(entry) {
+      if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes('PASTE')) return;
+
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry)
+        });
+      } catch (err) {
+        console.log('Sync failed (will not affect saving).');
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const entry = {
+        date: document.getElementById('date').value,
+        income: getNumber('income'),
+        otherIncome: getNumber('otherIncome'),
+      };
+
+      const expenses = [
+        'rent','electricity','gas','transport','wifi','food','schoolFees','debtPaid','debtTaken','otherExpenses'
+      ];
+
+      entry.totalExpenses = expenses.reduce((sum, id) => sum + getNumber(id), 0);
+
+      const data = JSON.parse(localStorage.getItem('budgetEntries') || '[]');
+      data.push(entry);
+      localStorage.setItem('budgetEntries', JSON.stringify(data));
+
+      await syncToGoogleSheets(entry);
+
+      form.reset();
+      loadData();
+      alert('Entry saved successfully!');
+    });
+
+    resetBtn.addEventListener('click', () => form.reset());
+
+    // PWA service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
